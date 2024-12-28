@@ -21,3 +21,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 
 clean:
 	del /f /q $(subst /,\,$(OBJS))
+
+try:
+	make clean
+	make all
+	./bin/main

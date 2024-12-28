@@ -1,0 +1,7 @@
+// Expression-block guard clauses
+
+do u8 : {
+  if (1 < 2)
+    yield 1;
+  yield 2;
+};
