@@ -49,15 +49,20 @@ enum class TokenType {
   STRING,
   NUMBER,
 
-  KEY_LET,
+  KEY_LOCK,
   KEY_CONST,
   KEY_VAR,
+
   KEY_IF,
   KEY_ELSE,
+  
   KEY_WHILE,
+  
   KEY_DO,
+  
   KEY_FUNC,
   KEY_RETURN,
+  
   KEY_YIELD,
 
   SEMI
@@ -226,13 +231,15 @@ class Lexer {
       case 'i':
         return checkKeyword(1, 1, "f", TokenType::KEY_IF);
       case 'l':
-        return checkKeyword(1, 2, "et", TokenType::KEY_LET);
+        return checkKeyword(1, 3, "ock", TokenType::KEY_LOCK);
       case 'r':
         return checkKeyword(1, 5, "eturn", TokenType::KEY_RETURN);
       case 'w':
         return checkKeyword(1, 4, "hile", TokenType::KEY_WHILE);
       case 'd':
         return checkKeyword(1, 1, "o", TokenType::KEY_DO);
+      case 'v':
+        return checkKeyword(1, 2, "ar", TokenType::KEY_VAR);
       case 'y':
         return checkKeyword(1, 4, "ield", TokenType::KEY_YIELD);
     }

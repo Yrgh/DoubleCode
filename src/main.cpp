@@ -10,6 +10,7 @@ Write your code in this editor and press "Run" button to compile and execute it.
 #include <fstream>
 #include <iostream>
 
+#include "astparser.cpp"
 #include "compiler.cpp"
 #include "vm.cpp"
 
@@ -24,19 +25,35 @@ int main() {
   source.read(input_buf, length);
   source.close();
 
-  Compiler compiler;
-  compiler.compile(input_buf);
+  Parser parser;
+  parser.parse(input_buf);
 
-  delete[] input_buf; // We don't need the source code anymore
+  parser.top->print(0);
+
+  Compiler compiler;
+  compiler.compile(parser.top);
+
+  compier.top->print(0);
+
+  // Free those resources
+  delete parser.top;
+  delete[] input_buf;
+
+  /*
+  Translator translator;
+  translator.translate(compiler.top);
+  */
+
+  delete compiler.top;
 
   std::cout << "Executing\n";
 
   VM vm;
   vm.init();
-  vm.instructions = compiler.getResultData();
-  vm.instructions_size = compiler.getResultSize();
+  vm.instructions = /*translator.resultData()*/nullptr;
+  vm.instructions_size = /*translator.resultSize()*/0;
   printf("Program size: %d\n", vm.instructions_size);
-  vm.execute();
+  //vm.execute();
 
   std::cout << "Results:\n";
   std::cout << "   Left: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers)) << "\n";

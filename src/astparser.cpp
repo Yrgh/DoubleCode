@@ -27,6 +27,18 @@ static void printOp(TokenType op) {
   case TokenType::STAR:
     printf("*");
     break;
+  case TokenType::PLUS_EQ:
+    printf("+=");
+    break;
+  case TokenType::MINUS_EQ:
+    printf("-=");
+    break;
+  case TokenType::SLASH_EQ:
+    printf("/=");
+    break;
+  case TokenType::STAR_EQ:
+    printf("*=");
+    break;
   case TokenType::EX:
     printf("!");
     break;
@@ -248,6 +260,28 @@ struct IfElseNode : ASTNode {
   }
 };
 
+struct VarDeclNode : ASTNode {
+  Token type, name;
+  ASTNode *expr;
+
+  ~VarDeclNode() {
+    if (expr) delete expr;
+  }
+
+  VarDeclNode(Token t_name, Token v_name, ASTNode *e) : 
+    type(t_name),
+    name(v_name),
+    expr(e)
+  {}
+
+  void print(int indent) const override {
+    printIndent(indent);
+    printf("var %.*s %.*s\n", type.length, type.start, name.length, name.start);
+
+    if (expr) expr->print(indent + 1);
+  }
+};
+
 class Parser {
   Lexer       lexer;
   Token       previous, current;
@@ -271,15 +305,16 @@ class Parser {
     printf("at:\n[line %d]: '%.*s'\n", tok.line, tok.length, tok.start);
   }
 
-  void expect(TokenType expected, const char *errmsg) {
+  bool expect(TokenType expected, const char *errmsg) {
     if (current.type == expected) {
       advance();
-      return;
+      return true;
     }
     if (silence > 0)
-      return;
+      return false;
     error(errmsg);
     logToken(current);
+    return false;
   }
 
   void quiet() {
@@ -294,32 +329,38 @@ class Parser {
     switch (type) {
     case TokenType::COMMA:
       return 0;
-    case TokenType::PIP_PIP:
+    case TokenType::EQ:
+    case TokenType::SLASH_EQ:
+    case TokenType::STAR_EQ:
+    case TokenType::PLUS_EQ:
+    case TokenType::MINUS_EQ:
       return 1;
-    case TokenType::AMP_AMP:
+    case TokenType::PIP_PIP:
       return 2;
-    case TokenType::PIP:
+    case TokenType::AMP_AMP:
       return 3;
-    case TokenType::CAR:
+    case TokenType::PIP:
       return 4;
-    case TokenType::AMP:
+    case TokenType::CAR:
       return 5;
+    case TokenType::AMP:
+      return 6;
     case TokenType::EQ_EQUAL:
     case TokenType::EX_EQUAL:
-      return 6;
+      return 7;
     case TokenType::GT:
     case TokenType::LT:
     case TokenType::GT_EQUAL:
     case TokenType::LT_EQUAL:
-      return 7;
+      return 8;
     case TokenType::PLUS:
     case TokenType::MINUS:
-      return 8;
+      return 9;
     case TokenType::STAR:
     case TokenType::SLASH:
-      return 9;
-    case TokenType::DOT:
       return 10;
+    case TokenType::DOT:
+      return 11;
     }
     return -1;
   }
@@ -454,6 +495,32 @@ class Parser {
 
           out = code;
           need_semi = false;
+        } break;
+        case TokenType::KEY_VAR: {
+          if (current.type != TokenType::IDENTIFIER) {
+            error("Expected type after variable declaration\n");
+            statementHadBadDetect = true;
+            continue;
+          }
+          
+          Token type = current;
+          advance();
+
+          if (current.type != TokenType::IDENTIFIER) {
+            error("Expected name after type in variable declaration\n");
+            statementHadBadDetect = true;
+            continue;
+          }
+
+          advance();
+
+          if (current.type == TokenType::EQ) {
+            Token name = previous;
+            advance();
+            out = new VarDeclNode(type, name, parseExpr());
+          } else {
+            out = new VarDeclNode(type, previous, nullptr);
+          }
         } break;
         default:
           if (!statementHadBadDetect) {

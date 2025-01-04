@@ -98,23 +98,15 @@ enum : byte { // If no register is specified, assume left
 
 #define FROM_SIZE(size) (TYPE_SIZE_##size)
 
-#define UPPER(x) (x >> 4)
-#define LOWER(x) (x & 0x0F)
-#define MERGE(u, d) ((u << 4) | d)
+#define UPPER(x) ((x) >> (byte) 4)
+#define LOWER(x) ((x) & (byte) 0x0F)
+#define MERGE(u, d) (((u) << (byte) 4) | (d))
 
 #define TYPE_TO_LEFT(x)  MERGE(REG_LEFT , LOWER(x))
 #define TYPE_TO_RIGHT(x) MERGE(REG_RIGHT, LOWER(x))
 
 template<class T> constexpr T max(T a, T b) { return a > b ? a : b; }
 template<class T> constexpr T min(T a, T b) { return a < b ? a : b; }
-
-constexpr byte best_type(byte a, byte b) {
-  // If (a_up > b_up) return a;
-  // If (b_up > a_up) return b;
-  // // a_up == b_up
-  // return MERGE(a_up, max(a_low, b_low))
-  return UPPER(a) > UPPER(b) ? a : (UPPER(b) > UPPER(a) ? b : MERGE(UPPER(a), max(LOWER(a), LOWER(b))));
-}
 
 static void swap_u64(uint64_t *a, uint64_t *b) {
   uint64_t t = *a;
@@ -130,6 +122,7 @@ struct VM {
   byte stack_base[MAX_STACK_SIZE] = {};
   int32_t stack_end;
   int32_t stack_frame;
+  void ( *pause_fn)(const VM *);
   
   #define stack_ptr (stack_base + stack_end)
   #define frame_ptr (stack_base + stack_frame)
@@ -356,7 +349,6 @@ struct VM {
         printf("...triggered\n");
         prog_counter = pos;
       })
-
       default:
         printf("Expected valid instruction\n", opcode);
         exit(11);
