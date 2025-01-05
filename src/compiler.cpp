@@ -14,7 +14,7 @@ struct IRTypeInfo {
       printf("<");
       for (int i = 0; i < params.size() - 1; ++i) {
         params[i].print();
-        printf(", ")
+        printf(", ");
       }
       params.back().print();
       printf(">");
@@ -110,7 +110,7 @@ struct IRUnaryOp : IRNode {
     }
     expr->print(indent + 1);
   }
-}
+};
 
 enum class CondOpType {
   EQUALS,
@@ -123,12 +123,12 @@ enum class CondOpType {
   AND,
 };
 
-struct IRBinaryOp : IRNode {
+struct IRCondOp : IRNode {
   IRNode *left, *right;
   IRTypeInfo leftType, rightType;
   CondOpType op;
 
-  ~IRBinaryOp() {
+  ~IRCondOp() {
     delete left;
     delete right;
   }
@@ -167,7 +167,7 @@ struct IRBinaryOp : IRNode {
 };
 
 struct IRVarDecl : IRNode {
-  std::string name
+  std::string name;
   IRTypeInfo type;
 
   IRNode *expr;
@@ -208,7 +208,7 @@ struct IRIdentifierAccess : IRNode {
   IRTypeInfo type;
 
   void print(int indent) const override {
-    printIndent(indent)
+    printIndent(indent);
     printf("%.*s (", name.length(), name.c_str());
     type.print();
     printf(")\n");
@@ -265,8 +265,25 @@ struct IRCodeBlock : IRNode {
 };
 
 class Compiler {
-  IRNode *compileStatement(const ASTNode *node_base) {
+  bool statementOk = true;
 
+  void error(const char *msg) const {
+    statementOk = false;
+    printf("IR Compilation error: %s\n", msg);
+  }
+
+#define CONDITION(type, name, source) \
+  if (const type *name = dynamic_cast<const type *>(source))
+
+  IRNode *compileStatement(const ASTNode *node_base) {
+    CONDITION(VarDeclNode, vardecl, node_base) {
+      IRVarDecl *out = new IRVarDecl;
+      out->name = std::string(vardecl->name.start, vardecl->name.length);
+      out->type = 
+    }
+
+    error("Expected statement!");
+    return nullptr;
   }
 
 public:
@@ -275,8 +292,11 @@ public:
   void compile(CodeBlockNode *root) {
     top = new IRCodeBlock;
     
-    for (const ASTNode *node : root) {
-      top->statements.push_back(compileStatement(node));
+    for (const ASTNode *node : root->statements) {
+      statementOk = true;
+      IRNode *statement = compileStatement(node);
+      if (statementOk)
+        top->statements.push_back(compileStatement(node));
     }
   }
 };

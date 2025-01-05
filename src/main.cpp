@@ -27,13 +27,11 @@ int main() {
 
   Parser parser;
   parser.parse(input_buf);
-
   parser.top->print(0);
 
   Compiler compiler;
   compiler.compile(parser.top);
-
-  compier.top->print(0);
+  compiler.top->print(0);
 
   // Free those resources
   delete parser.top;
@@ -46,12 +44,13 @@ int main() {
 
   delete compiler.top;
 
+  /*
   std::cout << "Executing\n";
 
   VM vm;
   vm.init();
-  vm.instructions = /*translator.resultData()*/nullptr;
-  vm.instructions_size = /*translator.resultSize()*/0;
+  vm.instructions = translator.resultData();
+  vm.instructions_size = translator.resultSize();
   printf("Program size: %d\n", vm.instructions_size);
   //vm.execute();
 
@@ -62,6 +61,7 @@ int main() {
   std::cout << "  Right: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers + 8)) << "\n";
   std::cout << "  Right: " << *(float *)(vm.registers + 8) << "f\n";
   std::cout << "  Right: " << *(double *)(vm.registers + 8) << "d\n";
+  */
 
   return 0;
 }

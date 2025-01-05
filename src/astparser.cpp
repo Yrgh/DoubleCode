@@ -88,6 +88,29 @@ struct ASTNode {
   }
 };
 
+struct ASTType {
+  Token name;
+  std::vector<ASTType> tempargs;
+  bool locked;
+
+  ASTType() = default;
+  ASTType(const ASTType &) = default;
+
+  void print() const {
+    if (locked) printf("lock ");
+    printf("%.*s", name.length, name.start);
+    if (!tempargs.empty()) {
+      printf("<");
+      for (int i = 0; i < tempargs.size() - 1; ++i) {
+        tempargs[i].print();
+        printf(", ");
+      }
+      tempargs.back().print();
+      printf(">");
+    }
+  }
+};
+
 struct NumberNode : ASTNode {
   Token tok;
   explicit NumberNode(Token tk) : tok(tk) {}
@@ -176,7 +199,7 @@ struct CodeBlockNode : ASTNode {
 
 struct ExprBlockNode : ASTNode {
   std::vector<ASTNode *> statements;
-  Token                  type;
+  ASTType type;
 
   ~ExprBlockNode() {
     for (ASTNode *node : statements) {
@@ -186,7 +209,8 @@ struct ExprBlockNode : ASTNode {
 
   void print(int indent) const override {
     printIndent(indent);
-    printf("%.*s : {\n", type.length, type.start);
+    type.print();
+    printf(" : {\n");
     for (const ASTNode *node : statements) {
       if (node == nullptr) {
         printIndent(indent + 1);
@@ -261,22 +285,25 @@ struct IfElseNode : ASTNode {
 };
 
 struct VarDeclNode : ASTNode {
-  Token type, name;
+  ASTType type;
+  Token name;
   ASTNode *expr;
 
   ~VarDeclNode() {
     if (expr) delete expr;
   }
 
-  VarDeclNode(Token t_name, Token v_name, ASTNode *e) : 
-    type(t_name),
+  VarDeclNode(ASTType &t, Token v_name, ASTNode *e) : 
+    type(t),
     name(v_name),
     expr(e)
   {}
 
   void print(int indent) const override {
     printIndent(indent);
-    printf("var %.*s %.*s\n", type.length, type.start, name.length, name.start);
+    printf("var ");
+    type.print();
+    printf(" %.*s\n", name.length, name.start);
 
     if (expr) expr->print(indent + 1);
   }
@@ -325,44 +352,69 @@ class Parser {
     silence--;
   }
 
+  ASTType parseType() {
+    ASTType result;
+    if (current.type == TokenType::KEY_LOCK) {
+      result.locked = true;
+      advance();
+    }
+
+    result.name = current;
+    advance();
+
+    if (current.type == TokenType::LT) {
+      advance();
+
+      while (current.type != TokenType::EOF_TOKEN) {
+        result.tempargs.push_back(parseType());
+
+        if (current.type == TokenType::GT) break;
+
+        expect(TokenType::COMMA, "Expected ',' between template arguments\n");
+      }
+      advance();
+    }
+  }
+
   int getPrec(TokenType type) {
     switch (type) {
-    case TokenType::COMMA:
-      return 0;
-    case TokenType::EQ:
-    case TokenType::SLASH_EQ:
-    case TokenType::STAR_EQ:
-    case TokenType::PLUS_EQ:
-    case TokenType::MINUS_EQ:
-      return 1;
-    case TokenType::PIP_PIP:
-      return 2;
-    case TokenType::AMP_AMP:
-      return 3;
-    case TokenType::PIP:
-      return 4;
-    case TokenType::CAR:
-      return 5;
-    case TokenType::AMP:
-      return 6;
-    case TokenType::EQ_EQUAL:
-    case TokenType::EX_EQUAL:
-      return 7;
-    case TokenType::GT:
-    case TokenType::LT:
-    case TokenType::GT_EQUAL:
-    case TokenType::LT_EQUAL:
-      return 8;
-    case TokenType::PLUS:
-    case TokenType::MINUS:
-      return 9;
-    case TokenType::STAR:
-    case TokenType::SLASH:
-      return 10;
-    case TokenType::DOT:
-      return 11;
+      case TokenType::COMMA:
+        return 0;
+      case TokenType::EQ:
+      case TokenType::SLASH_EQ:
+      case TokenType::STAR_EQ:
+      case TokenType::PLUS_EQ:
+      case TokenType::MINUS_EQ:
+        return 1;
+      case TokenType::PIP_PIP:
+        return 2;
+      case TokenType::AMP_AMP:
+        return 3;
+      case TokenType::PIP:
+        return 4;
+      case TokenType::CAR:
+        return 5;
+      case TokenType::AMP:
+        return 6;
+      case TokenType::EQ_EQUAL:
+      case TokenType::EX_EQUAL:
+        return 7;
+      case TokenType::GT:
+      case TokenType::LT:
+      case TokenType::GT_EQUAL:
+      case TokenType::LT_EQUAL:
+        return 8;
+      case TokenType::PLUS:
+      case TokenType::MINUS:
+        return 9;
+      case TokenType::STAR:
+      case TokenType::SLASH:
+        return 10;
+      case TokenType::DOT:
+        return 11;
+      default:
+        return -1;
     }
-    return -1;
   }
 
   ASTNode *parsePrimary() {
@@ -372,11 +424,13 @@ class Parser {
         return new NumberNode(previous);
       }
       case TokenType::IDENTIFIER: {
+        // The Dilemma: Is it a type or a name? 
         advance();
+
         // Type : {/*block*/}
-        if (current.type == TokenType::COLON) {
+        /*if (current.type == TokenType::COLON) {
           ExprBlockNode *block = new ExprBlockNode;
-          block->type          = previous;
+          block->type = previous;
           advance(); // Now we can consume the colon token
 
           expect(TokenType::LEFT_CURLY, "Expected '{'\n");
@@ -397,7 +451,7 @@ class Parser {
           return block;
         }
         // If it ain't a block type, it be a variable name
-        return new IdentifierNode(previous.start, previous.length);
+        return new IdentifierNode(previous.start, previous.length);*/
       }
       case TokenType::LEFT_ROUND: {
         advance();
@@ -503,8 +557,7 @@ class Parser {
             continue;
           }
           
-          Token type = current;
-          advance();
+          ASTType type = parseType();
 
           if (current.type != TokenType::IDENTIFIER) {
             error("Expected name after type in variable declaration\n");
