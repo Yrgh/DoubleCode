@@ -2,9 +2,8 @@
 #define _AST_CPP_
 
 #include <stdio.h>
-
+#include <string>
 #include <vector>
-
 #include "lexer.cpp"
 
 static void printIndent(int indent) {
@@ -89,16 +88,17 @@ struct ASTNode {
 };
 
 struct ASTType {
-  Token name;
+  std::string name;
   std::vector<ASTType> tempargs;
-  bool locked;
+  bool locked = false;
+  int arrsize = 0; // Not an array
 
   ASTType() = default;
   ASTType(const ASTType &) = default;
 
   void print() const {
     if (locked) printf("lock ");
-    printf("%.*s", name.length, name.start);
+    printf("%.*s", name.length(), name.c_str());
     if (!tempargs.empty()) {
       printf("<");
       for (int i = 0; i < tempargs.size() - 1; ++i) {
@@ -107,6 +107,9 @@ struct ASTType {
       }
       tempargs.back().print();
       printf(">");
+    }
+    if (arrsize > 0) {
+      printf("[%d]", arrsize);
     }
   }
 };
@@ -233,9 +236,7 @@ struct DoExprNode : ASTNode {
   }
 
   void print(int indent) const override {
-    printIndent(indent);
-    printf("do\n");
-    expr->print(indent + 1);
+    expr->print(indent);
   }
 };
 
@@ -287,16 +288,16 @@ struct IfElseNode : ASTNode {
 struct VarDeclNode : ASTNode {
   ASTType type;
   Token name;
-  ASTNode *expr;
+  ASTNode *init; // Either a CodeBlockNode (representing a set of parameters) or an expression
 
   ~VarDeclNode() {
-    if (expr) delete expr;
+    if (init) delete init;
   }
 
   VarDeclNode(ASTType &t, Token v_name, ASTNode *e) : 
     type(t),
     name(v_name),
-    expr(e)
+    init(e)
   {}
 
   void print(int indent) const override {
@@ -305,18 +306,15 @@ struct VarDeclNode : ASTNode {
     type.print();
     printf(" %.*s\n", name.length, name.start);
 
-    if (expr) expr->print(indent + 1);
+    if (init) init->print(indent + 1);
   }
 };
 
 class Parser {
   Lexer       lexer;
   Token       previous, current;
-  int         silence               = 0;
   bool        statementStatus       = true; // True = OK, False = Bad
-  bool        statementHadBadDetect = false;
   const char *source_code;
-  int depth = 0;
 
   void advance() {
     previous = current;
@@ -324,8 +322,7 @@ class Parser {
   }
 
   void error(const char *message) const {
-    if (silence < 1)
-      printf("Parse Error (depth: %d): %s", depth, message);
+    printf("Parse Error: %s", message);
   }
 
   void logToken(const Token &tok) {
@@ -337,19 +334,10 @@ class Parser {
       advance();
       return true;
     }
-    if (silence > 0)
-      return false;
+    statementStatus = false;
     error(errmsg);
     logToken(current);
     return false;
-  }
-
-  void quiet() {
-    silence++;
-  }
-
-  void unquiet() {
-    silence--;
   }
 
   ASTType parseType() {
@@ -359,13 +347,39 @@ class Parser {
       advance();
     }
 
-    result.name = current;
+    if (current.type != TokenType::IDENTIFIER &&
+      current.type != TokenType::SPEC_SHARED &&
+      current.type != TokenType::SPEC_UNIQUE
+    ) {
+      error("Expected identifier at the beginning of type\n");
+      logToken(current);
+    }
+    
+    result.name = std::string(current.start, current.length);
     advance();
+
+    if (
+      (
+        previous.type == TokenType::SPEC_SHARED ||
+        previous.type == TokenType::SPEC_UNIQUE
+      ) &&
+      current.type == TokenType::LEFT_SQUARE
+    ) {
+      advance();
+      expect(TokenType::RIGHT_SQUARE, "Expected '[]', but found '['\n");
+      result.name.append("[]");
+    }
 
     if (current.type == TokenType::LT) {
       advance();
 
+      if (current.type == TokenType::GT) {
+        advance();
+        return result; // Empty ("<>")
+      }
+
       while (current.type != TokenType::EOF_TOKEN) {
+
         result.tempargs.push_back(parseType());
 
         if (current.type == TokenType::GT) break;
@@ -374,6 +388,54 @@ class Parser {
       }
       advance();
     }
+
+    return result;
+  }
+
+  bool skipType() {
+    if (current.type == TokenType::KEY_LOCK) {
+      advance();
+    }
+
+    if (current.type != TokenType::IDENTIFIER &&
+      current.type != TokenType::SPEC_SHARED &&
+      current.type != TokenType::SPEC_UNIQUE
+    ) return false;
+    
+    advance();
+
+    if (
+      (
+        previous.type == TokenType::SPEC_SHARED ||
+        previous.type == TokenType::SPEC_UNIQUE
+      ) &&
+      current.type == TokenType::LEFT_SQUARE
+    ) {
+      advance();
+      if (current.type != TokenType::RIGHT_SQUARE) return false;
+      advance();
+    }
+
+    if (current.type == TokenType::LT) {
+      advance();
+
+      if (current.type == TokenType::GT) {
+        advance();
+        return true; // Empty ("<>")
+      }
+      
+      while (current.type != TokenType::EOF_TOKEN) {
+
+        if (!skipType()) return false;
+
+        if (current.type == TokenType::GT) break;
+
+        if (current.type != TokenType::COMMA) return false;
+      }
+      advance();
+    }
+
+    return true;
   }
 
   int getPrec(TokenType type) {
@@ -417,41 +479,65 @@ class Parser {
     }
   }
 
+  ASTNode *parseExprBlock() {
+    ExprBlockNode *exprblock = new ExprBlockNode;
+    exprblock->type = parseType();
+
+    // ':'
+    advance();
+    expect(TokenType::LEFT_CURLY, "Expected '{' in expr-block\n");
+
+    bool state = statementStatus;
+    while (
+      current.type != TokenType::EOF_TOKEN &&
+      current.type != TokenType::RIGHT_CURLY
+    ) {
+      statementStatus = true;
+      ASTNode *node = parseStatement();
+      if (statementStatus)
+        exprblock->statements.push_back(node);
+      else delete node;
+    }
+    statementStatus = state;
+
+    expect(TokenType::RIGHT_CURLY, "Unterminated expr-block\n");
+    return exprblock;
+  }
+
   ASTNode *parsePrimary() {
     switch (current.type) {
       case TokenType::NUMBER: {
         advance();
         return new NumberNode(previous);
       }
+      // They are just noteworthy identifiers
+      case TokenType::SPEC_SHARED:
+      case TokenType::SPEC_UNIQUE:
       case TokenType::IDENTIFIER: {
-        // The Dilemma: Is it a type or a name? 
-        advance();
+        // Try if it is a Expr-block or an identifier
+        // - If we see an invalid template, it has to be an identifier (valid templates: "<x0, x1...>")
+        // - If we see no template or a valid template, then check for ':'. It indicates an expr-block
+        // - If we see a valid template, but no ':', something went wrong.
 
-        // Type : {/*block*/}
-        /*if (current.type == TokenType::COLON) {
-          ExprBlockNode *block = new ExprBlockNode;
-          block->type = previous;
-          advance(); // Now we can consume the colon token
+        // Capture the lexer's state
+        Lexer lexstate = lexer;
+        Token prev = previous, curr = current;
 
-          expect(TokenType::LEFT_CURLY, "Expected '{'\n");
+        #define REVERT { lexer = lexstate; previous = prev; current = curr; }
+        #define PARSE_ID { return new IdentifierNode(current.start, current.length); }
 
-          while (
-              current.type != TokenType::RIGHT_CURLY &&
-              current.type != TokenType::EOF_TOKEN) {
-            ASTNode *newstate = parseStatement();
-            if (statementStatus)
-              block->statements.push_back(newstate);
-            statementStatus = true;
-          }
-
-          if (current.type == TokenType::EOF_TOKEN)
-            error("Unterminated expression block\n");
-          else
-            advance(); // Only stops for two reasons
-          return block;
+        bool valid_type = skipType();
+        
+        if (valid_type && current.type == TokenType::COLON) {
+          REVERT
+          return parseExprBlock();
         }
-        // If it ain't a block type, it be a variable name
-        return new IdentifierNode(previous.start, previous.length);*/
+
+        REVERT
+        PARSE_ID
+
+        #undef REVERT
+        #undef PARSE_ID
       }
       case TokenType::LEFT_ROUND: {
         advance();
@@ -502,97 +588,117 @@ class Parser {
   }
 
   ASTNode *parseStatement() {
-    depth++;
-    while (current.type != TokenType::EOF_TOKEN) {
-      ASTNode *out;
-      advance();
-      bool need_semi = true;
-      switch (previous.type) {
-        case TokenType::KEY_DO:
-          out = new DoExprNode(parseExpr());
+    ASTNode *out;
+    bool need_semi = true;
+    switch (current.type) {
+      case TokenType::KEY_IF: {
+        advance();
+
+        IfElseNode *ifelse = new IfElseNode();
+
+        expect(TokenType::LEFT_ROUND, "Expected '(' after 'if'\n");
+        ifelse->cond = parseExpr();
+        expect(TokenType::RIGHT_ROUND, "Expected ')' after if condition\n");
+
+        ifelse->left = parseStatement();
+        need_semi = false;
+        if (current.type == TokenType::KEY_ELSE) {
+          advance();
+          ifelse->right = parseStatement();
+        }
+        out = ifelse;
+      } break;
+      case TokenType::KEY_YIELD: {
+        advance();
+        
+        out = new YieldNode(parseExpr());
+      } break;
+      case TokenType::LEFT_CURLY: {
+        advance();
+        
+        CodeBlockNode *code = new CodeBlockNode;
+
+        while (
+          current.type != TokenType::EOF_TOKEN &&
+          current.type != TokenType::RIGHT_CURLY
+        ) {
+          ASTNode *newstate = parseStatement();
+          if (statementStatus)
+            code->statements.push_back(newstate);
+          else delete newstate;
+          statementStatus = true;
+        }
+
+        expect(TokenType::RIGHT_CURLY, "Unterminated code block\n");
+
+        out = code;
+        need_semi = false;
+      } break;
+      case TokenType::KEY_VAR: {
+        advance();
+        
+        Lexer lexstate = lexer;
+        Token prev = previous, curr = current;
+        if (!skipType()) {
+          error("Expected identifier at the beginning of type\n");
+          logToken(current);
+        }
+        lexer = lexstate;
+        previous = prev;
+        current = curr;
+        
+        ASTType type = parseType();
+
+        if (current.type != TokenType::IDENTIFIER) {
+          error("Expected name after type in variable declaration\n");
           break;
-        case TokenType::KEY_IF: {
-          IfElseNode *ifelse = new IfElseNode();
+        }
 
-          expect(TokenType::LEFT_ROUND, "Expected '(' after 'if'\n");
-          ifelse->cond = parseExpr();
-          expect(TokenType::RIGHT_ROUND, "Expected ')' after if condition\n");
+        advance();
 
-          ifelse->left = parseStatement();
-          need_semi = false;
-          if (current.type == TokenType::KEY_ELSE) {
-            advance();
-            ifelse->right = parseStatement();
-          }
-          out = ifelse;
-        } break;
-        case TokenType::KEY_YIELD: {
-          out = new YieldNode(parseExpr());
-        } break;
-        case TokenType::LEFT_CURLY: {
-          CodeBlockNode *code = new CodeBlockNode;
+        if (current.type == TokenType::EQ) {
+          Token name = previous;
+          advance();
+          out = new VarDeclNode(type, name, parseExpr());
+        } else if (current.type == TokenType::LEFT_SQUARE) {
+          Token name = previous;
+          advance();
+
+          CodeBlockNode *constructor = new CodeBlockNode;
 
           while (
             current.type != TokenType::EOF_TOKEN &&
-            current.type != TokenType::RIGHT_CURLY
+            current.type != TokenType::RIGHT_SQUARE
           ) {
-            ASTNode *newstate = parseStatement();
+            ASTNode *newexpr = parseExpr();
             if (statementStatus)
-              code->statements.push_back(newstate);
+              constructor->statements.push_back(newexpr);
+            else delete newexpr;
             statementStatus = true;
           }
 
-          if (current.type == TokenType::EOF_TOKEN)
-            error("Unterminated code block\n");
-          else
-            advance(); // Only stops for two reasons
+          expect(TokenType::RIGHT_SQUARE, "Unterminated construction block\n");
 
-          out = code;
-          need_semi = false;
-        } break;
-        case TokenType::KEY_VAR: {
-          if (current.type != TokenType::IDENTIFIER) {
-            error("Expected type after variable declaration\n");
-            statementHadBadDetect = true;
-            continue;
-          }
-          
-          ASTType type = parseType();
-
-          if (current.type != TokenType::IDENTIFIER) {
-            error("Expected name after type in variable declaration\n");
-            statementHadBadDetect = true;
-            continue;
-          }
-
-          advance();
-
-          if (current.type == TokenType::EQ) {
-            Token name = previous;
-            advance();
-            out = new VarDeclNode(type, name, parseExpr());
-          } else {
-            out = new VarDeclNode(type, previous, nullptr);
-          }
-        } break;
-        default:
-          if (!statementHadBadDetect) {
-            error("Expected statement\n");
-            statementHadBadDetect = true;
-          }
-          continue;
-      }
-      statementHadBadDetect = false;
-      if (need_semi)
-        expect(TokenType::SEMI, "Expected ';' after statement\n");
-      depth--;
-      return out;
+          out = new VarDeclNode(type, name, constructor);
+        } else {
+          out = new VarDeclNode(type, previous, nullptr);
+        }
+      } break;
+      default:
+        out = new DoExprNode(parseExpr());
+        break;
+        /*if (!statementHadBadDetect) {
+          error("Expected statement\n");
+          statementHadBadDetect = true;
+        }
+        continue;*/
     }
+    if (need_semi)
+      expect(TokenType::SEMI, "Expected ';' after statement\n");
+    return out;
 
     printf("Parsing failed! Program could not stablize\n");
-    statementStatus       = false;
-    statementHadBadDetect = false;
-    depth--;
+    statementStatus = false;
     return nullptr;
   }
 
@@ -613,6 +719,7 @@ public:
       ASTNode *newstate = parseStatement();
       if (statementStatus)
         top->statements.push_back(newstate);
+      else delete newstate;
       statementStatus = true;
     }
   }

@@ -2,6 +2,7 @@
 #define _LEXER_CPP_
 
 #include <string.h>
+#include <stdio.h>
 
 enum class TokenType {
   // Error goes first so that null tokens are error tokens!
@@ -64,6 +65,9 @@ enum class TokenType {
   KEY_RETURN,
   
   KEY_YIELD,
+
+  SPEC_UNIQUE,
+  SPEC_SHARED,
 
   SEMI
 };
@@ -209,7 +213,8 @@ class Lexer {
   TokenType checkKeyword(int from, int length, const char *rest, TokenType type) {
     if (
       current - start == from + length &&
-      memcmp(start + from, rest, length) == 0) {
+      memcmp(start + from, rest, length) == 0
+    ) {
       return type;
     }
 
@@ -242,6 +247,10 @@ class Lexer {
         return checkKeyword(1, 2, "ar", TokenType::KEY_VAR);
       case 'y':
         return checkKeyword(1, 4, "ield", TokenType::KEY_YIELD);
+      case 'U':
+        return checkKeyword(1, 5, "nique", TokenType::SPEC_UNIQUE);
+      case 'S':
+        return checkKeyword(1, 5, "hared", TokenType::SPEC_SHARED);
     }
 
     return TokenType::IDENTIFIER;

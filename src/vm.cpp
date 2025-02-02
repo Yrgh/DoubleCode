@@ -90,10 +90,10 @@ enum : byte { // If no register is specified, assume left
   TYPE_SIGNED   = 0x02,
   TYPE_FLOAT    = 0x03,
   
-  TYPE_SIZE_8  = 0x00,
-  TYPE_SIZE_16 = 0x01,
-  TYPE_SIZE_32 = 0x02,
-  TYPE_SIZE_64 = 0x03,
+  TYPE_SIZE_8  = 0x01,
+  TYPE_SIZE_16 = 0x02,
+  TYPE_SIZE_32 = 0x04,
+  TYPE_SIZE_64 = 0x08,
 };
 
 #define FROM_SIZE(size) (TYPE_SIZE_##size)
@@ -147,7 +147,7 @@ struct VM {
     printf("opcode: %d\n", (int) opcode);
     switch(opcode) {
       SWITCH_CASE(OPCODE_LOADC, {
-        char size = 1 << (*GET_BYTES(1));
+        char size = *GET_BYTES(1);
         int32_t pos = *(int32_t *) GET_BYTES(4);
         if (instructions_size < pos + size) exit(1);
         memcpy(registers, instructions + pos, size);
@@ -297,23 +297,23 @@ struct VM {
       
       SWITCH_CASE(OPCODE_PUSH, {
         byte reg = *GET_BYTES(1);
-        push(registers + UPPER(reg), 1 << LOWER(reg));
+        push(registers + UPPER(reg), LOWER(reg));
         printf("Push 0x%.2hhX\n", reg);
       })
       
       SWITCH_CASE(OPCODE_POP, {
         byte reg = *GET_BYTES(1);
-        pop(registers + UPPER(reg), 1 << LOWER(reg));
+        pop(registers + UPPER(reg), LOWER(reg));
         printf("Pop 0x%.2hhX\n", reg);
       })
       
       SWITCH_CASE(OPCODE_LOAD, {
-        char size = 1 << (*GET_BYTES(1));
+        char size = *GET_BYTES(1);
         memcpy(registers, *(void **) registers, size);
       })
       
       SWITCH_CASE(OPCODE_STORE, {
-        char size = 1 << (*GET_BYTES(1));
+        char size = *GET_BYTES(1);
         memcpy(*(void **) registers, registers, size);
       })
       
