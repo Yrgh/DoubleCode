@@ -236,7 +236,9 @@ struct DoExprNode : ASTNode {
   }
 
   void print(int indent) const override {
-    expr->print(indent);
+    printIndent(indent);
+    printf("Do:\n");
+    expr->print(indent + 1);
   }
 };
 
@@ -685,7 +687,7 @@ class Parser {
         }
       } break;
       default:
-        out = new DoExprNode(parseExpr());
+        out = parseExpr();
         break;
         /*if (!statementHadBadDetect) {
           error("Expected statement\n");

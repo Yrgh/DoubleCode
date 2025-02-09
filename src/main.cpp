@@ -30,7 +30,7 @@ int main() {
   parser.top->print(0);
 
   Compiler compiler;
-  compiler.compile(parser.top);
+  if (!compiler.compile(parser.top)) return 1;
   
   // Free those resources
   delete parser.top;
@@ -47,9 +47,11 @@ int main() {
 
   std::cout << "Results:\n";
   std::cout << "   Left: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers)) << "\n";
+  std::cout << "   Left: " << *(int64_t*)(vm.registers) << "\n";
   std::cout << "   Left: " << *(float *)(vm.registers) << "f\n";
   std::cout << "   Left: " << *(double *)(vm.registers) << "d\n";
   std::cout << "  Right: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers + 8)) << "\n";
+  std::cout << "  Right: " << *(int64_t*)(vm.registers + 8) << "\n";
   std::cout << "  Right: " << *(float *)(vm.registers + 8) << "f\n";
   std::cout << "  Right: " << *(double *)(vm.registers + 8) << "d\n";
 

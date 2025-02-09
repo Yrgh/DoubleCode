@@ -57,30 +57,32 @@ enum : byte { // If no register is specified, assume left
   
   OPCODE_PUSH, // 16 - Pushes a register
   OPCODE_POP,  // 17 - Pops a register
+  OPCODE_RESERVE, // 18 - Increases the stack pointer
+  OPCODE_RELEASE, // 19 - Decreases the stack pointer
   
   // Arithmetc
-  OPCODE_ADD, // 18
-  OPCODE_SUB, // 19
-  OPCODE_MUL, // 20
-  OPCODE_DIV, // 21
-  OPCODE_NEG, // 22
+  OPCODE_ADD, // 20
+  OPCODE_SUB, // 21
+  OPCODE_MUL, // 22
+  OPCODE_DIV, // 23
+  OPCODE_NEG, // 24
   // Float-specific arithmetic
-  OPCODE_FFLOOR, // 23
-  OPCODE_FCEIL, // 24
-  OPCODE_FTRIG, // 25 - Like SPECCALL, but for trig functions
+  OPCODE_FFLOOR, // 25
+  OPCODE_FCEIL, // 26
+  OPCODE_FTRIG, // 27 - Like SPECCALL, but for trig functions
   
   // The following expect a size parameter
-  OPCODE_AND, // 26 - Bitwise AND
-  OPCODE_OR,  // 27 - Bitwise OR
-  OPCODE_XOR, // 28 - Bitwise XOR
-  OPCODE_NOT, // 29 - Reverse bits of register
+  OPCODE_AND, // 28 - Bitwise AND
+  OPCODE_OR,  // 29 - Bitwise OR
+  OPCODE_XOR, // 30 - Bitwise XOR
+  OPCODE_NOT, // 31 - Reverse bits of register
 
   // Boolean operations
-  OPCODE_BAND, // 30
-  OPCODE_BOR, // 31
-  OPCODE_BNOT, // 32
+  OPCODE_BAND, // 32
+  OPCODE_BOR, // 33
+  OPCODE_BNOT, // 34
   
-  OPCODE_SPECCALL, // 33 - Call a VM function of given ID
+  OPCODE_SPECCALL, // 35 - Call a VM function of given ID
 
   REG_LEFT  = 0x00,
   REG_RIGHT = 0x08,
@@ -127,16 +129,27 @@ struct VM {
   #define stack_ptr (stack_base + stack_end)
   #define frame_ptr (stack_base + stack_frame)
   
-  void push(const void *data, int size) {
+  void push(const void *data, uint8_t size) {
     if (stack_base + MAX_STACK_SIZE < stack_ptr) exit(1);
     memcpy(stack_ptr, data, size);
     stack_end += size;
   }
   
-  void pop(void *dest, int size) {
+  void pop(void *dest, uint8_t size) {
     if (stack_base + size > stack_ptr) exit(1);
     stack_end -= size;
     memcpy(dest, stack_ptr, size);
+  }
+
+  void reserve(int16_t size) {
+    if (stack_base + MAX_STACK_SIZE < stack_ptr) exit(1);
+    memset(stack_ptr, 0, size);
+    stack_end += size;
+  }
+  
+  void release(int16_t size) {
+    if (stack_base + size > stack_ptr) exit(1);
+    stack_end -= size;
   }
   
   #define GET_BYTES(num) (instructions + (prog_counter+=num)-num)
@@ -305,6 +318,18 @@ struct VM {
         byte reg = *GET_BYTES(1);
         pop(registers + UPPER(reg), LOWER(reg));
         printf("Pop 0x%.2hhX\n", reg);
+      })
+
+      SWITCH_CASE(OPCODE_RESERVE, {
+        int16_t size = *(int16_t *) GET_BYTES(2);
+        reserve(size);
+        printf("Reserve %d\n", size);
+      })
+      
+      SWITCH_CASE(OPCODE_RELEASE, {
+        int16_t size = *(int16_t *) GET_BYTES(2);
+        release(size);
+        printf("Release %d\n", size);
       })
       
       SWITCH_CASE(OPCODE_LOAD, {
