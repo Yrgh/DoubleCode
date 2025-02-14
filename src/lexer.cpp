@@ -21,22 +21,18 @@ enum class TokenType {
   COLON,
 
   MINUS,
-  MINUS_EQ,
   PLUS,
-  PLUS_EQ,
   STAR,
-  STAR_EQ,
   SLASH,
-  SLASH_EQ,
-
+  
   CAR, // ^
   AMP,
   AMP_AMP, // & / &&
   PIP,
   PIP_PIP, // | / ||
-
+  
   TILDE,
-
+  
   EX,
   EX_EQUAL,
   EQ,
@@ -45,15 +41,15 @@ enum class TokenType {
   GT_EQUAL,
   LT,
   LT_EQUAL,
-
+  
   IDENTIFIER,
   STRING,
   NUMBER,
-
+  
   KEY_LOCK,
   KEY_CONST,
-  KEY_VAR,
-
+  KEY_LET,
+  
   KEY_IF,
   KEY_ELSE,
   
@@ -65,11 +61,16 @@ enum class TokenType {
   KEY_RETURN,
   
   KEY_YIELD,
-
+  
   SPEC_UNIQUE,
   SPEC_SHARED,
+  
+  SEMI,
 
-  SEMI
+  MINUS_EQ = 128,
+  PLUS_EQ,
+  STAR_EQ,
+  SLASH_EQ,
 };
 
 struct Token {
@@ -210,7 +211,7 @@ class Lexer {
     return makeToken(TokenType::NUMBER);
   }
 
-  TokenType checkKeyword(int from, int length, const char *rest, TokenType type) {
+  TokenType checkKeyword(int from, int length, const char *rest, TokenType type, TokenType alt=TokenType::IDENTIFIER) {
     if (
       current - start == from + length &&
       memcmp(start + from, rest, length) == 0
@@ -218,7 +219,7 @@ class Lexer {
       return type;
     }
 
-    return TokenType::IDENTIFIER;
+    return alt;
   }
 
   TokenType wordType() {
@@ -236,15 +237,13 @@ class Lexer {
       case 'i':
         return checkKeyword(1, 1, "f", TokenType::KEY_IF);
       case 'l':
-        return checkKeyword(1, 3, "ock", TokenType::KEY_LOCK);
+        return checkKeyword(1, 2, "et", TokenType::KEY_LET, checkKeyword(1, 3, "ock", TokenType::KEY_LOCK));
       case 'r':
         return checkKeyword(1, 5, "eturn", TokenType::KEY_RETURN);
       case 'w':
         return checkKeyword(1, 4, "hile", TokenType::KEY_WHILE);
       case 'd':
         return checkKeyword(1, 1, "o", TokenType::KEY_DO);
-      case 'v':
-        return checkKeyword(1, 2, "ar", TokenType::KEY_VAR);
       case 'y':
         return checkKeyword(1, 4, "ield", TokenType::KEY_YIELD);
       case 'U':

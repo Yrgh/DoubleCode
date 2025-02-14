@@ -6,6 +6,10 @@
 #include <vector>
 #include "lexer.cpp"
 
+static std::string tokenToString(const Token &tok) {
+  return std::string(tok.start, tok.length);
+}
+
 static void printIndent(int indent) {
   for (int i = 0; i < indent; ++i) {
     printf("  ");
@@ -91,12 +95,26 @@ struct ASTType {
   std::string name;
   std::vector<ASTType> tempargs;
   bool locked = false;
+  bool ref = false;
   int arrsize = 0; // Not an array
 
   ASTType() = default;
   ASTType(const ASTType &) = default;
 
+  bool operator==(const ASTType &other) const {
+    if (other.name != name) return false;
+    if (other.arrsize != arrsize) return false;
+    if (other.tempargs != tempargs) return false;
+    // We don't care about lockiness
+    return true;
+  }
+
+  bool operator!=(const ASTType &other) const {
+    return !(*this == other);
+  }
+
   void print() const {
+    if (ref)    printf("ref ");
     if (locked) printf("lock ");
     printf("%.*s", name.length(), name.c_str());
     if (!tempargs.empty()) {
@@ -166,13 +184,12 @@ struct UnaryNode : ASTNode {
 };
 
 struct IdentifierNode : ASTNode {
-  const char *id;
-  int         length;
-  explicit IdentifierNode(const char *name, int len) : id(name), length(len) {}
+  Token tok;
+  explicit IdentifierNode(const Token &t) : tok(t) {}
 
   void print(int indent) const override {
     printIndent(indent);
-    printf("%.*s\n", length, id);
+    printf("%.*s\n", tok.length, tok.start);
   }
 };
 
@@ -357,7 +374,7 @@ class Parser {
       logToken(current);
     }
     
-    result.name = std::string(current.start, current.length);
+    result.name = tokenToString(current);
     advance();
 
     if (
@@ -526,7 +543,6 @@ class Parser {
         Token prev = previous, curr = current;
 
         #define REVERT { lexer = lexstate; previous = prev; current = curr; }
-        #define PARSE_ID { return new IdentifierNode(current.start, current.length); }
 
         bool valid_type = skipType();
         
@@ -536,10 +552,10 @@ class Parser {
         }
 
         REVERT
-        PARSE_ID
+        advance();
+        return new IdentifierNode(previous);
 
         #undef REVERT
-        #undef PARSE_ID
       }
       case TokenType::LEFT_ROUND: {
         advance();
@@ -636,7 +652,7 @@ class Parser {
         out = code;
         need_semi = false;
       } break;
-      case TokenType::KEY_VAR: {
+      case TokenType::KEY_LET: {
         advance();
         
         Lexer lexstate = lexer;
@@ -687,6 +703,7 @@ class Parser {
         }
       } break;
       default:
+        printf("Token type: %d\n", current.type);
         out = parseExpr();
         break;
         /*if (!statementHadBadDetect) {

@@ -1,11 +1,3 @@
-/******************************************************************************
-
-                              Online C++ Compiler.
-               Code, Compile, Run and Debug C++ program online.
-Write your code in this editor and press "Run" button to compile and execute it.
-
-*******************************************************************************/
-
 #include <bitset>
 #include <fstream>
 #include <iostream>
@@ -16,7 +8,11 @@ Write your code in this editor and press "Run" button to compile and execute it.
 
 int main() {
   // Open, get the length of, and read the source code file
-  std::ifstream source("C:\\Users\\adyng\\source\\vscode\\DoubleCode\\example.txt");
+  std::ifstream source("C:\\Users\\adyng\\source\\vscode\\DoubleCode\\example.dcs");
+  if (!source.is_open()) {
+    printf("File could not be opened. Teminating...\n");
+    return 2;
+  }
   source.seekg(0, std::ios::end);
   int length = source.tellg();
   source.seekg(0, std::ios::beg);
@@ -26,11 +22,15 @@ int main() {
   source.close();
 
   Parser parser;
+  printf("Parsing...\n");
   parser.parse(input_buf);
+  printf("Parse done. Printing...\n");
   parser.top->print(0);
 
   Compiler compiler;
+  printf("Compiling...\n");
   if (!compiler.compile(parser.top)) return 1;
+  printf("Compilation successful!\n");
   
   // Free those resources
   delete parser.top;
@@ -40,6 +40,7 @@ int main() {
 
   VM vm;
   vm.init();
+  std::cout << (void *) vm.stack_base << "\n";
   vm.instructions = compiler.resultData();
   vm.instructions_size = compiler.resultSize();
   printf("Program size: %d\n", vm.instructions_size);

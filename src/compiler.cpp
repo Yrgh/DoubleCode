@@ -7,7 +7,7 @@
 #include <vector>
 #include <iostream>
 
-#define APPLY_UNDONE(dest, op, src) ((dest op##= src) op src)
+#define ADD_UNDONE(dest, src) ((dest += src) - src)
 
 #define CONSTANT_VAL_TYPE(name) (ASTType{#name, {}, true, 0})
 
@@ -66,11 +66,52 @@ class Compiler {
   std::unordered_map<int32_t, int32_t> constant_indexes;
   ConstantPool constants;
 
+  struct VarInfo {
+    bool is_global;
+    bool is_prim;
+    byte prim; // Optional
+    int location;
+    int size;
+    ASTType type;
+  };
+
+  std::unordered_map<std::string, VarInfo> variables;
+  std::vector<std::string> global_stack;
+  std::vector<std::vector<std::string>> local_stack;
+
   int stack_global = 0;
   int stack_local  = 0;
-  bool in_global = true;
+  bool is_global = true;
 
   bool compile_fail;
+
+  int emitPush(byte reg) {
+    result.push_back(OPCODE_PUSH);
+    result.push_back(reg);
+    if (is_global) return ADD_UNDONE(stack_global, LOWER(reg));
+    return ADD_UNDONE(stack_local, LOWER(reg));
+  }
+
+  void emitPop(byte reg) {
+    result.push_back(OPCODE_POP);
+    result.push_back(reg);
+    if (is_global) stack_global -= LOWER(reg);
+    else stack_local -= LOWER(reg);
+  }
+
+  int emitReserve(int size) {
+    result.push_back(OPCODE_RESERVE);
+    insertValue<int16_t>(size);
+    if (is_global) return ADD_UNDONE(stack_global, size);
+    return ADD_UNDONE(stack_local, size);
+  }
+
+  void emitRelease(int size) {
+    result.push_back(OPCODE_RELEASE);
+    insertValue<int16_t>(size);
+    if (is_global) stack_global -= size;
+    else stack_local -= size;
+  }
 
   template <class T> void insertValue(T val) {
     T &ptr = *(T *)(result.data() + result.size());
@@ -84,12 +125,6 @@ class Compiler {
     result.push_back(sizeof(val));
     constant_indexes.insert({result.size(), constants.addConstant<T>(val)});
     result.insert(result.end(), 4, 0);
-  }
-
-  // Returns the stack location of the value
-  int modifyStack(int num) {
-    if (in_global) return APPLY_UNDONE(stack_global, +, num);
-    return APPLY_UNDONE(stack_local, +, num);
   }
 
   ASTType number(const std::string &str) {
@@ -151,8 +186,10 @@ class Compiler {
   }
 
   int32_t typeSize(const ASTType &type) {
+    if (type.ref) return 8;
+
     if (isPrimitive(type)) {
-      return std::stoi(type.name.substr(1));
+      return std::stoi(type.name.substr(1)) / 8;
     }
 
     return 0;
@@ -164,8 +201,8 @@ class Compiler {
 
     if (isPrimitive(left)) {
       primleft = primitiveByte(left);
-      result.push_back(OPCODE_PUSH);
-      result.push_back(LOWER(primleft));
+      derefPrim(left, primleft);
+      emitPush(LOWER(primleft));
     } else {
       // TODO
     }
@@ -178,6 +215,7 @@ class Compiler {
     if (isPrimitive(best)) {
       primbest = primitiveByte(best);
       byte primright = primitiveByte(right);
+      derefPrim(right, primright);
 
       if (primright != primbest) {
         result.push_back(OPCODE_CONV);
@@ -187,8 +225,7 @@ class Compiler {
 
       result.push_back(OPCODE_SWAP);
 
-      result.push_back(OPCODE_POP);
-      result.push_back(LOWER(primleft));
+      emitPop(LOWER(primleft));
 
       if (primleft != primbest) {
         result.push_back(OPCODE_CONV);
@@ -209,6 +246,15 @@ class Compiler {
     return best;
   }
 
+  void derefPrim(ASTType &type, byte p) {
+    if (!type.ref) return;
+    printf("Dereference\n");
+    type.ref = false;
+
+    result.push_back(OPCODE_LOAD);
+    result.push_back(LOWER(p));
+  }
+
   // --- Expressions --
   // NOTE: Primitive values are passed down through the left register, but objects are passed at the top of the stack
 
@@ -224,15 +270,101 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
       return compileBinaryOp(binop);
     }
 
+    CHECK_IS_TYPE(node, id, IdentifierNode) {
+      std::string name = tokenToString(id->tok);
+      const VarInfo &info = variables.at(name);
+      ASTType new_type = info.type;
+
+      if (info.type.ref) {
+        new_type.ref = false;
+        // TODO: some more stuff...
+        return new_type;
+      }
+
+      new_type.ref = true;
+
+      if (info.is_global)
+        result.push_back(OPCODE_SPP);
+      else
+        result.push_back(OPCODE_FPP);
+      insertValue<int32_t>(info.location);
+
+      return new_type;
+    }
+
     return VOID_TYPE;
   }
 
   void compileStatement(const ASTNode *node) {
     CHECK_IS_TYPE(node, vardecl, VarDeclNode) {
+      std::string name = tokenToString(vardecl->name);
+      
+      if (variables.count(name) > 0) {
+        compile_fail = true;
+        printf("Variable already exists\n");
+      }
+
+      VarInfo &info = variables[name];
+
+      info.type = vardecl->type;
+      info.is_global = is_global;
+      info.size = typeSize(vardecl->type);
+
+      if (is_global) {
+        global_stack.push_back(name);
+      } else {
+        local_stack.back().push_back(name);
+      }
+
+      if (isPrimitive(vardecl->type)) {
+        byte prim = primitiveByte(vardecl->type);
+
+        derefPrim(info.type, prim);
+
+        info.is_prim = true;
+        info.prim = prim;
+
+        if (vardecl->init) {
+          ASTType res = compileExpression(vardecl->init);
+
+          if (!isPrimitive(res)) {
+            printf("Assigning non-primitive to primitive value\n");
+            return;
+          }
+
+          byte resprim = primitiveByte(res);
+          derefPrim(res, resprim);
+
+          if (res != vardecl->type) {
+            // Convert the result
+            result.push_back(OPCODE_CONV);
+            result.push_back(resprim);
+            result.push_back(prim);
+          }
+        } else {
+          switch (UPPER(prim)) {
+            case TYPE_SIGNED:
+            case TYPE_UNSIGNED:
+              number("0");
+              break;
+            case TYPE_FLOAT:
+              if (LOWER(prim) == FROM_SIZE(32)) number("0f");
+              else number("0d");
+              break;
+          }
+        }
+
+        // Either way, we push it to the stack
+       info.location = emitPush(LOWER(prim));
+      } else {
+        info.is_prim = false;
+      }
+
       return;
     }
 
     compileExpression(node);
+    result.push_back(OPCODE_PRINT); // NOTE: Remove this
   }
 
 #undef CHECK_IS_TYPE
@@ -250,8 +382,10 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
 public:
   bool compile(const CodeBlockNode *top) {
     result.clear();
-    result.reserve(8); // We need at least 8 bytes: a LOADC instruction (+1+4), a 1-bye constant, and a RETURN instruction
-    
+    result.reserve(32);
+    stack_global = 0;
+    stack_local = 0;
+
     for (const ASTNode *node : top->statements) {
       compile_fail = false;
       compileStatement(node);
@@ -260,6 +394,21 @@ public:
         printf("Compilation failed with errors!\n");
         return false;
       }
+    }
+
+    while (!global_stack.empty()) {
+      const std::string &name = global_stack.back();
+      VarInfo &info = variables[name];
+
+      if (info.is_prim) {
+        emitPop(LOWER(info.prim));
+      } else {
+        emitRelease(info.size);
+      }
+
+      global_stack.pop_back();
+      // Not neccessary?
+      //variables.erase(name);
     }
     
     finishResult();

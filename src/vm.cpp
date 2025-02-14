@@ -83,6 +83,7 @@ enum : byte { // If no register is specified, assume left
   OPCODE_BNOT, // 34
   
   OPCODE_SPECCALL, // 35 - Call a VM function of given ID
+  OPCODE_PRINT, // 36 - Prints register content. NOTE: Remove this later
 
   REG_LEFT  = 0x00,
   REG_RIGHT = 0x08,
@@ -132,6 +133,7 @@ struct VM {
   void push(const void *data, uint8_t size) {
     if (stack_base + MAX_STACK_SIZE < stack_ptr) exit(1);
     memcpy(stack_ptr, data, size);
+    printf("Val: %d ad %p\n", (int) (* (char *) stack_ptr), stack_ptr);
     stack_end += size;
   }
   
@@ -154,10 +156,10 @@ struct VM {
   
   #define GET_BYTES(num) (instructions + (prog_counter+=num)-num)
   void execute_one() {
-    printf("prog_counter: %d\n", prog_counter);
     if (prog_counter >= instructions_size) exit(20);
+
     byte opcode = *GET_BYTES(1);
-    printf("opcode: %d\n", (int) opcode);
+    
     switch(opcode) {
       SWITCH_CASE(OPCODE_LOADC, {
         char size = *GET_BYTES(1);
@@ -167,6 +169,7 @@ struct VM {
       })
       
       SWITCH_CASE(OPCODE_SWAP, {
+        printf("Swap\n");
         swap_u64(
           (uint64_t *) registers,
           (uint64_t *) (registers + 8)
@@ -334,7 +337,9 @@ struct VM {
       
       SWITCH_CASE(OPCODE_LOAD, {
         char size = *GET_BYTES(1);
-        memcpy(registers, *(void **) registers, size);
+        void *ptr = * (void **) registers;
+        memcpy(registers, ptr, size);
+        printf("Loaded %d from %p\n", (int) size, ptr);
       })
       
       SWITCH_CASE(OPCODE_STORE, {
@@ -344,7 +349,8 @@ struct VM {
       
       SWITCH_CASE(OPCODE_SPP, {
         int32_t index = *(int32_t *) GET_BYTES(4);
-        * (void **) registers = stack_base + index;
+        * (void **) registers = stack_base + index + 8;
+        printf("SPP(%d)=%p\n", index, * (void **) registers);
       })
       
       SWITCH_CASE(OPCODE_FPP, {
@@ -374,6 +380,21 @@ struct VM {
         printf("...triggered\n");
         prog_counter = pos;
       })
+
+      SWITCH_CASE(OPCODE_PRINT, {
+        printf("Registers:\n   Left: 0x%.16llX\n   Left: %lli\n   Left: %ff\n",
+          *(uint64_t *)(registers),
+          *(int64_t *)(registers),
+          *(float *)(registers)
+        );
+
+        printf("\n  Right: 0x%.16llX\n  Right: %lli\n  Right: %ff\n",
+          *(uint64_t *)(registers + 8),
+          *(int64_t *)(registers + 8),
+          *(float *)(registers + 8)
+        );
+      })
+
       default:
         printf("Expected valid instruction\n", opcode);
         exit(11);
