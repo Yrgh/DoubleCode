@@ -79,6 +79,18 @@ class Compiler {
   std::vector<std::string> global_stack;
   std::vector<std::vector<std::string>> local_stack;
 
+  struct ExprBlockInfo {
+    std::vector<int> jump_inserts;
+    const ExprBlockNode *block;
+
+    ExprBlockInfo(const ExprBlockNode *ptr) :
+      jump_inserts(),
+      block(ptr)
+    {}
+  };
+
+  std::vector<ExprBlockInfo> expr_blocks;
+
   int stack_global = 0;
   int stack_local  = 0;
   bool is_global = true;
@@ -472,12 +484,70 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
       return new_type;
     }
 
+    CHECK_IS_TYPE(node, eb, ExprBlockNode) {
+      expr_blocks.emplace_back(eb);
+
+      for (const ASTNode *node : eb->statements) {
+        compileStatement(node);
+      }
+
+      for (int pos : expr_blocks.back().jump_inserts) {
+        *(int32_t *)(result.data() + pos) = result.size();
+      }
+      
+      expr_blocks.pop_back();
+      
+      return eb->type;
+    }
+
     return VOID_TYPE;
   }
 
   void compileStatement(const ASTNode *node) {
     CHECK_IS_TYPE(node, vardecl, VarDeclNode) {
       compileVarDecl(vardecl);
+
+      return;
+    }
+
+    CHECK_IS_TYPE(node, yld, YieldNode) {
+      if (expr_blocks.empty()) {
+        printf("Cannot use yield outside of expression-block\n");
+        compile_fail = true;
+        return;
+      }
+
+      ExprBlockInfo &info = expr_blocks.back();
+
+      bool isprim = isPrimitive(info.block->type);
+      byte prim;
+
+      if (isprim) {
+        prim = primitiveByte(info.block->type);
+      }
+
+      ASTType res = compileExpression(yld->expr);
+
+      if (res != info.block->type) {
+        if (isprim && isPrimitive(res)) {
+          byte primres = primitiveByte(res);
+
+          result.push_back(OPCODE_CONV);
+          result.push_back(primres);
+          result.push_back(prim);
+        } else {
+          printf("Yield type mismatch\n");
+          compile_fail = true;
+          return;
+        }
+      }
+
+      // NOTE: TODO NOW
+      if (isprim) {
+        
+      } else {
+        
+      }
 
       return;
     }
