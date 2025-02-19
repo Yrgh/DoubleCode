@@ -8,7 +8,7 @@
 
 int main() {
   // Open, get the length of, and read the source code file
-  std::ifstream source("C:\\Users\\adyng\\source\\vscode\\DoubleCode\\example.dcs");
+  std::ifstream source("./example.dcs");
   if (!source.is_open()) {
     printf("File could not be opened. Teminating...\n");
     return 2;
