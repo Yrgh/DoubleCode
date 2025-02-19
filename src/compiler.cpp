@@ -187,12 +187,109 @@ class Compiler {
 
   int32_t typeSize(const ASTType &type) {
     if (type.ref) return 8;
-
+    
     if (isPrimitive(type)) {
       return std::stoi(type.name.substr(1)) / 8;
     }
-
+    
     return 0;
+  }
+
+  void derefPrim(ASTType &type, byte p) {
+    if (!type.ref) return;
+    type.ref = false;
+
+    result.push_back(OPCODE_LOAD);
+    result.push_back(LOWER(p));
+  }
+  
+  void applyOpPrimitive(TokenType op, byte type) {
+    switch (op) {
+      case TokenType::PLUS_EQ:
+      case TokenType::PLUS:
+        result.push_back(OPCODE_ADD);
+        result.push_back(type);
+        break;
+    }
+  }
+
+  ASTType compileAssignOp(const BinaryNode * binop) {
+    ASTType left = compileExpression(binop->left);
+    byte primleft;
+    if (!left.ref || left.locked) {
+      printf("Expected an unlocked reference on the left of assignment operator");
+      compile_fail = true;
+      return VOID_TYPE;
+    }
+    
+    bool isprim = isPrimitive(left);
+
+    int location;
+
+    if (isprim) {
+      primleft = primitiveByte(left);
+      location = emitPush(sizeof(void *));
+    } else {
+
+    }
+
+    ASTType right = compileExpression(binop->right);
+
+    if (isprim) {
+      if (!isPrimitive(right)) {
+        printf("Object assigned to primitive\n");
+        compile_fail = true;
+        return VOID_TYPE;
+      }
+
+      byte primright = primitiveByte(right);
+      derefPrim(right, primright);
+
+      if (primleft != primright) {
+        result.push_back(OPCODE_CONV);
+        result.push_back(primright);
+        result.push_back(primleft);
+      }
+
+      result.push_back(OPCODE_SWAP);
+      
+      // For example, +=
+      if (binop->op != TokenType::EQ) {
+        // Step 1 is to get the pointer without popping the stack
+        if (is_global) {
+          result.push_back(OPCODE_SPP);
+        } else {
+          result.push_back(OPCODE_FPP);
+        }
+        insertValue<int32_t>(location);
+
+        result.push_back(OPCODE_LOAD);
+        result.push_back(sizeof(void *));
+
+        result.push_back(OPCODE_LOAD);
+        result.push_back(LOWER(primleft));
+
+        applyOpPrimitive(binop->op, primleft);
+
+        result.push_back(OPCODE_SWAP);
+      }
+
+      emitPop(sizeof(void *));
+
+      result.push_back(OPCODE_STORE);
+
+      // This should keep the pointer in the left register, so we don't need to do anything else to return the reference
+    } else {
+      if (left != right) {
+        printf("Type mismatch in assignment operator\n");
+        compile_fail = true;
+        return VOID_TYPE;
+      }
+    }
+
+    // We still want reference and unlocked
+
+    return left;
   }
 
   ASTType compileBinaryOp(const BinaryNode *binop) {
@@ -233,26 +330,108 @@ class Compiler {
         result.push_back(primbest);
       }
 
-      switch (binop->op) {
-        case TokenType::PLUS:
-          result.push_back(OPCODE_ADD);
-          result.push_back(primbest);
-          break;
-      }
+      applyOpPrimitive(binop->op, primbest);
     } else {
       // TODO
     }
 
+    best.locked = true;
     return best;
   }
 
-  void derefPrim(ASTType &type, byte p) {
-    if (!type.ref) return;
-    printf("Dereference\n");
-    type.ref = false;
+  void compileVarDecl(const VarDeclNode *vardecl) {
+    std::string name = tokenToString(vardecl->name);
+      
+    if (variables.count(name) > 0) {
+      printf("Variable already exists\n");
+      compile_fail = true;
+      return;
+    }
 
-    result.push_back(OPCODE_LOAD);
-    result.push_back(LOWER(p));
+    VarInfo &info = variables[name];
+
+    info.type = vardecl->type;
+    info.is_global = is_global;
+    info.size = typeSize(vardecl->type);
+
+    if (is_global) {
+      global_stack.push_back(name);
+    } else {
+      local_stack.back().push_back(name);
+    }
+
+    if (info.type.ref) {
+      if (!vardecl->init) {
+        printf("References must be initialized\n");
+        compile_fail = true;
+        return;
+      }
+
+      ASTType res = compileExpression(vardecl->init);
+      
+      // Make sure the types line up...
+
+      if (res != info.type) {
+        printf("Conflicting reference and initializer\n");
+        compile_fail = true;
+        return;
+      }
+      
+      if (!res.ref) {
+        printf("References must be initialized with a reference\n");
+        compile_fail = true;
+        return;
+      }
+
+      // We actually don't care about the data, just the pointer.
+      
+      info.location = emitPush(sizeof(void *));
+
+      return;
+    }
+
+    if (isPrimitive(vardecl->type)) {
+      byte prim = primitiveByte(vardecl->type);
+
+      info.is_prim = true;
+      info.prim = prim;
+
+      if (vardecl->init) {
+        ASTType res = compileExpression(vardecl->init);
+
+        if (!isPrimitive(res)) {
+          printf("Assigning non-primitive to primitive value\n");
+          compile_fail = true;
+          return;
+        }
+
+        byte resprim = primitiveByte(res);
+        derefPrim(res, resprim);
+
+        if (res != vardecl->type) {
+          // Convert the result
+          result.push_back(OPCODE_CONV);
+          result.push_back(resprim);
+          result.push_back(prim);
+        }
+      } else {
+        switch (UPPER(prim)) {
+          case TYPE_SIGNED:
+          case TYPE_UNSIGNED:
+            number("0");
+            break;
+          case TYPE_FLOAT:
+            if (LOWER(prim) == FROM_SIZE(32)) number("0f");
+            else number("0d");
+            break;
+        }
+      }
+
+      // Either way, we push it to the stack
+     info.location = emitPush(LOWER(prim));
+    } else {
+      info.is_prim = false;
+    }
   }
 
   // --- Expressions --
@@ -267,6 +446,7 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
     }
 
     CHECK_IS_TYPE(node, binop, BinaryNode) {
+      if (binop->op >= TokenType::EQ) return compileAssignOp(binop);
       return compileBinaryOp(binop);
     }
 
@@ -274,20 +454,20 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
       std::string name = tokenToString(id->tok);
       const VarInfo &info = variables.at(name);
       ASTType new_type = info.type;
-
-      if (info.type.ref) {
-        new_type.ref = false;
-        // TODO: some more stuff...
-        return new_type;
-      }
-
-      new_type.ref = true;
-
+      
       if (info.is_global)
         result.push_back(OPCODE_SPP);
       else
         result.push_back(OPCODE_FPP);
       insertValue<int32_t>(info.location);
+
+      if (info.type.ref) {
+        if (info.is_prim) {
+          result.push_back(OPCODE_LOAD);
+          result.push_back(LOWER(info.prim));
+        }
+      } else
+        new_type.ref = true;
 
       return new_type;
     }
@@ -297,68 +477,7 @@ if (const newtype *newname = dynamic_cast<const newtype *>(oldname))
 
   void compileStatement(const ASTNode *node) {
     CHECK_IS_TYPE(node, vardecl, VarDeclNode) {
-      std::string name = tokenToString(vardecl->name);
-      
-      if (variables.count(name) > 0) {
-        compile_fail = true;
-        printf("Variable already exists\n");
-      }
-
-      VarInfo &info = variables[name];
-
-      info.type = vardecl->type;
-      info.is_global = is_global;
-      info.size = typeSize(vardecl->type);
-
-      if (is_global) {
-        global_stack.push_back(name);
-      } else {
-        local_stack.back().push_back(name);
-      }
-
-      if (isPrimitive(vardecl->type)) {
-        byte prim = primitiveByte(vardecl->type);
-
-        derefPrim(info.type, prim);
-
-        info.is_prim = true;
-        info.prim = prim;
-
-        if (vardecl->init) {
-          ASTType res = compileExpression(vardecl->init);
-
-          if (!isPrimitive(res)) {
-            printf("Assigning non-primitive to primitive value\n");
-            return;
-          }
-
-          byte resprim = primitiveByte(res);
-          derefPrim(res, resprim);
-
-          if (res != vardecl->type) {
-            // Convert the result
-            result.push_back(OPCODE_CONV);
-            result.push_back(resprim);
-            result.push_back(prim);
-          }
-        } else {
-          switch (UPPER(prim)) {
-            case TYPE_SIGNED:
-            case TYPE_UNSIGNED:
-              number("0");
-              break;
-            case TYPE_FLOAT:
-              if (LOWER(prim) == FROM_SIZE(32)) number("0f");
-              else number("0d");
-              break;
-          }
-        }
-
-        // Either way, we push it to the stack
-       info.location = emitPush(LOWER(prim));
-      } else {
-        info.is_prim = false;
-      }
+      compileVarDecl(vardecl);
 
       return;
     }
@@ -400,7 +519,9 @@ public:
       const std::string &name = global_stack.back();
       VarInfo &info = variables[name];
 
-      if (info.is_prim) {
+      if (info.type.ref) {
+        emitPop(sizeof(void *));
+      } else if (info.is_prim) {
         emitPop(LOWER(info.prim));
       } else {
         emitRelease(info.size);

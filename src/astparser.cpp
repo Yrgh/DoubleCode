@@ -321,7 +321,7 @@ struct VarDeclNode : ASTNode {
 
   void print(int indent) const override {
     printIndent(indent);
-    printf("var ");
+    printf("let ");
     type.print();
     printf(" %.*s\n", name.length, name.start);
 
@@ -359,8 +359,45 @@ class Parser {
     return false;
   }
 
+  bool isValidType() {
+    if (current.type == TokenType::KEY_REF) return true; // I'm assuming. Maybe not? Time will tell
+    if (current.type == TokenType::KEY_LOCK) return true;
+    // Do we need to check identifiers and Unique/Shared?
+
+    // Check if it is a primitive
+    if (current.length < 4 && current.length > 1) {
+      // Confusing switch cases. It works...I think.
+      switch (current.start[0]) {
+        case 'u':
+        case 'i':
+          switch (current.start[1]) {
+            case '8':
+              if (current.length == 2) return true;
+              break;
+            case '1':
+              if (current.length == 3 && current.start[2] == '6') return true;
+          }
+        case 'f':
+          switch (current.start[1]) {
+            case '3':
+              if (current.length == 3 && current.start[2] == '2') return true;
+            case '6':
+              if (current.length == 3 && current.start[2] == '4') return true;
+          }
+        break;
+      }
+    }
+
+    return false;
+  }
+
   ASTType parseType() {
     ASTType result;
+    if (current.type == TokenType::KEY_REF) {
+      result.ref = true;
+      advance();
+    }
+
     if (current.type == TokenType::KEY_LOCK) {
       result.locked = true;
       advance();
@@ -411,7 +448,11 @@ class Parser {
     return result;
   }
 
-  bool skipType() {
+  /* bool skipType() {
+    if (current.type == TokenType::KEY_REF) {
+      advance();
+    }
+
     if (current.type == TokenType::KEY_LOCK) {
       advance();
     }
@@ -455,7 +496,7 @@ class Parser {
     }
 
     return true;
-  }
+  } */
 
   int getPrec(TokenType type) {
     switch (type) {
@@ -498,12 +539,10 @@ class Parser {
     }
   }
 
-  ASTNode *parseExprBlock() {
+  ASTNode *parseExprBlockAfterColon(const ASTType &type) {
     ExprBlockNode *exprblock = new ExprBlockNode;
-    exprblock->type = parseType();
+    exprblock->type = type;
 
-    // ':'
-    advance();
     expect(TokenType::LEFT_CURLY, "Expected '{' in expr-block\n");
 
     bool state = statementStatus;
@@ -529,9 +568,27 @@ class Parser {
         advance();
         return new NumberNode(previous);
       }
-      // They are just noteworthy identifiers
       case TokenType::SPEC_SHARED:
       case TokenType::SPEC_UNIQUE:
+      case TokenType::KEY_REF:
+      case TokenType::KEY_LOCK: {
+        // No fancy stuff for these. We know they are types...I think
+        ASTType type = parseType();
+
+        switch (current.type) {
+          case TokenType::COLON:
+            advance();
+            return parseExprBlockAfterColon(type);
+        }
+        
+        error(
+          "Expected a syntax marker (such as ':') after type\n"
+          "  (If this message is incorrect something went wrong internally)\n"
+        );
+
+        statementStatus = false;
+        return nullptr;
+      }
       case TokenType::IDENTIFIER: {
         // Try if it is a Expr-block or an identifier
         // - If we see an invalid template, it has to be an identifier (valid templates: "<x0, x1...>")
@@ -544,11 +601,17 @@ class Parser {
 
         #define REVERT { lexer = lexstate; previous = prev; current = curr; }
 
-        bool valid_type = skipType();
+        bool valid_type = isValidType();
         
-        if (valid_type && current.type == TokenType::COLON) {
+        if (valid_type){
           REVERT
-          return parseExprBlock();
+          ASTType type = parseType();
+
+          switch (current.type) {
+            case TokenType::COLON:
+              advance();
+              return parseExprBlockAfterColon(type);
+          }
         }
 
         REVERT
@@ -564,7 +627,8 @@ class Parser {
         return result;
       }
       case TokenType::KEY_IF: {
-      }
+
+      } break;
       // Unary operators
       case TokenType::EX:
       case TokenType::TILDE:
@@ -573,11 +637,11 @@ class Parser {
         TokenType op = previous.type;
         return new UnaryNode(op, parsePrimary());
       }
-      default:
-        error("Invalid expression!\n");
-        statementStatus = false;
-        return nullptr;
-      }
+    }
+
+    error("Invalid expression!\n");
+    statementStatus = false;
+    return nullptr;
   }
 
   ASTNode *parseBinaryRHS(int min_prec, ASTNode *lhs) {
@@ -657,7 +721,7 @@ class Parser {
         
         Lexer lexstate = lexer;
         Token prev = previous, curr = current;
-        if (!skipType()) {
+        if (isValidType()) {
           error("Expected identifier at the beginning of type\n");
           logToken(current);
         }

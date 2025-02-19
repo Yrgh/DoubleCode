@@ -40,7 +40,6 @@ int main() {
 
   VM vm;
   vm.init();
-  std::cout << (void *) vm.stack_base << "\n";
   vm.instructions = compiler.resultData();
   vm.instructions_size = compiler.resultSize();
   printf("Program size: %d\n", vm.instructions_size);
@@ -49,10 +48,30 @@ int main() {
   std::cout << "Results:\n";
   std::cout << "   Left: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers)) << "\n";
   std::cout << "   Left: " << *(int64_t*)(vm.registers) << "\n";
+  printf("   Left: %.3d %.3d %.3d %.3d %.3d %.3d %.3d %.3d\n", 
+    (int) (*(uint8_t *)(vm.registers + 7)),
+    (int) (*(uint8_t *)(vm.registers + 6)),
+    (int) (*(uint8_t *)(vm.registers + 5)),
+    (int) (*(uint8_t *)(vm.registers + 4)),
+    (int) (*(uint8_t *)(vm.registers + 3)),
+    (int) (*(uint8_t *)(vm.registers + 2)),
+    (int) (*(uint8_t *)(vm.registers + 1)),
+    (int) (*(uint8_t *)(vm.registers))
+  );
   std::cout << "   Left: " << *(float *)(vm.registers) << "f\n";
   std::cout << "   Left: " << *(double *)(vm.registers) << "d\n";
   std::cout << "  Right: 0b" << std::bitset<64>(*(uint64_t *)(vm.registers + 8)) << "\n";
   std::cout << "  Right: " << *(int64_t*)(vm.registers + 8) << "\n";
+  printf(" Right: %.3d %.3d %.3d %.3d %.3d %.3d %.3d %.3d\n", 
+    (int) (*(uint8_t *)(vm.registers + 15)),
+    (int) (*(uint8_t *)(vm.registers + 14)),
+    (int) (*(uint8_t *)(vm.registers + 13)),
+    (int) (*(uint8_t *)(vm.registers + 12)),
+    (int) (*(uint8_t *)(vm.registers + 11)),
+    (int) (*(uint8_t *)(vm.registers + 10)),
+    (int) (*(uint8_t *)(vm.registers + 9)),
+    (int) (*(uint8_t *)(vm.registers + 8))
+  );
   std::cout << "  Right: " << *(float *)(vm.registers + 8) << "f\n";
   std::cout << "  Right: " << *(double *)(vm.registers + 8) << "d\n";
 

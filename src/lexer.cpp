@@ -32,10 +32,11 @@ enum class TokenType {
   PIP_PIP, // | / ||
   
   TILDE,
+
+  QUESTION,
   
   EX,
   EX_EQUAL,
-  EQ,
   EQ_EQUAL,
   GT,
   GT_EQUAL,
@@ -46,6 +47,7 @@ enum class TokenType {
   STRING,
   NUMBER,
   
+  KEY_REF,
   KEY_LOCK,
   KEY_CONST,
   KEY_LET,
@@ -66,8 +68,9 @@ enum class TokenType {
   SPEC_SHARED,
   
   SEMI,
-
-  MINUS_EQ = 128,
+  
+  EQ = 128,
+  MINUS_EQ,
   PLUS_EQ,
   STAR_EQ,
   SLASH_EQ,
@@ -227,19 +230,21 @@ class Lexer {
       case 'e':
         return checkKeyword(1, 3, "lse", TokenType::KEY_ELSE);
       case 'f':
-        if (current - start > 1) {
-          switch (start[1]) {
-            case 'u':
-              return checkKeyword(2, 2, "nc", TokenType::KEY_FUNC);
-          }
-        }
-        break;
+        return checkKeyword(1, 3, "unc", TokenType::KEY_FUNC);
       case 'i':
         return checkKeyword(1, 1, "f", TokenType::KEY_IF);
       case 'l':
         return checkKeyword(1, 2, "et", TokenType::KEY_LET, checkKeyword(1, 3, "ock", TokenType::KEY_LOCK));
       case 'r':
-        return checkKeyword(1, 5, "eturn", TokenType::KEY_RETURN);
+        if (current - start > 2 && start[1] == 'e') {
+          switch (start[2]) {
+            case 't':
+              return checkKeyword(3, 3, "urn", TokenType::KEY_RETURN);
+            case 'f':
+              return TokenType::KEY_REF;
+          }
+        }
+        break;
       case 'w':
         return checkKeyword(1, 4, "hile", TokenType::KEY_WHILE);
       case 'd':
@@ -337,6 +342,8 @@ public:
       case '|':
         return makeToken(
           match('|') ? TokenType::PIP_PIP : TokenType::PIP);
+      case '?':
+          return makeToken(TokenType::QUESTION);
       case '"':
         return string();
     }

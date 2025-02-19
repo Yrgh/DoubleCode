@@ -41,6 +41,7 @@ enum : byte { // If no register is specified, assume left
   OPCODE_STORE, // 5 - Indirect store to the pointer in the register
   OPCODE_LOAD, // 6 - Indirect load from the pointer in the register
   OPCODE_LOADC,  // 7 - Load a constant
+  OPCODE_CPY, // 8 - Moves data from the right pointer to the left pointer
   
   OPCODE_SWAP, // 8 - Swaps the registers
   
@@ -344,7 +345,7 @@ struct VM {
       
       SWITCH_CASE(OPCODE_STORE, {
         char size = *GET_BYTES(1);
-        memcpy(*(void **) registers, registers, size);
+        memcpy(*(void **) registers, registers + 8, size);
       })
       
       SWITCH_CASE(OPCODE_SPP, {
