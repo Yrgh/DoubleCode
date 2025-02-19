@@ -8,7 +8,7 @@ SRCS := $(wildcard $(SRC_DIR)/*.cpp) $(wildcard $(SRC_DIR)/*/*.cpp)
 OBJS := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 DEPS := $(OBJS:.o=.d)
 
-FLAGS1 := -MMD -Iinclude -Isrc -Llib
+FLAGS1 := -std=c17 -Iinclude -Isrc -Llib
 FLAGS2 := 
 
 all: $(TARGET)
@@ -20,9 +20,12 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	g++ $(FLAGS1) -c $< -o $@ $(FLAGS2)
 
 clean:
-	del /f /q $(subst /,\,$(OBJS))
+	rm -f obj/*.o obj/*.d bin/main
 
-try:
+reset:
 	make clean
 	make all
+
+try:
+	make reset
 	./bin/main

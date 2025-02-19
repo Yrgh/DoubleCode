@@ -1,3 +1,4 @@
 .vscode/**
-bin/main.exe
+bin/main
 obj/**
+Makefile
