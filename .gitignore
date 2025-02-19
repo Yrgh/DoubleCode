@@ -1,4 +1,5 @@
 .vscode/**
 bin/main
+bin/main.*
 obj/**
 Makefile
